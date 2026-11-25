@@ -11,6 +11,58 @@ The gold-standard example is the `WinUtil_v2` spec. It produced a video the user
 
 ---
 
+## The Skill-First System (mandatory, applies to every spec)
+
+Every spec you write must force the build agent to work **skill-first**: every task it does (scaffolding, animation, audio, SFX, screenshots, rendering, QA) is done with a skill from the project's skill directory. If a needed skill is missing, it installs one with `find-skills` before starting that task. There are no exceptions. The reason is simple: when an agent guesses Remotion/HyperFrames/FFmpeg APIs from memory, you get the subtle bugs (30 fps math, broken `staticFile`, wrong render flags) that skills exist to prevent.
+
+You write this system into **Section 1** of every spec (template below). It has five parts:
+
+**1. Skill inventory (first command of the build).** Before any code, the agent lists every skill directory the project has and records the result:
+```
+ls ~/.agents/skills ./.agents/skills ./.claude/skills ~/.claude/skills 2>/dev/null
+```
+
+**2. Baseline required skills.** These must be present. Any that are missing get installed with `find-skills` (search by name, install, then re-run the inventory to confirm):
+
+| Domain | Required skills |
+|---|---|
+| Skill discovery | `find-skills` |
+| Remotion core | `remotion-best-practices`, `remotion-create`, `remotion-docs`, `remotion-studio`, `remotion-render`, `remotion-upgrade` |
+| Remotion media & motion | `remotion-multimedia`, `remotion-captions`, `remotion-markup`, `remotion-interactivity` (plus `remotion-maps`, `remotion-saas`, `remotion-license` when relevant) |
+| HyperFrames | `hyperframes`, `hyperframes-cli`, `hyperframes-registry` |
+| Motion design & shotcraft | `motion-art-direction`, `video-shotcraft`, `style-sampling`, `reverse-any-video` |
+| Audio / media | `ffmpeg`, `media-use` |
+| TypeScript quality | `typescript-pro`, `typescript-advanced-types` |
+| **Screenshots & visual QA** | `playwright-cli` + at least one dedicated **screenshot skill** (see part 3) |
+
+**3. Screenshot skills are mandatory.** The project must have screenshot capability, because the anti-overlap audit, dead-air audit and spotlight alignment checks all depend on capturing and inspecting frames. The agent must confirm that it has:
+- a **still/frame capture skill** for rendering Remotion stills and extracting video frames (`remotion-render` + `ffmpeg`), and
+- a **screenshot skill** for capturing and inspecting UI/browser/Studio screenshots (`playwright-cli` and a dedicated screenshot skill).
+
+If no dedicated screenshot skill is present, the agent runs `find-skills` with the queries `screenshot`, `browser screenshot`, `playwright screenshot`, `visual regression`, `frame capture`. It installs the best match, then confirms the install by taking one test screenshot of Remotion Studio or a rendered still. **No scene code is written until screenshot capability is confirmed.**
+
+**4. Task → Skill map (one row per task).** The spec includes a table that maps every build task to the skill(s) the agent must load (read its `SKILL.md`) **right before** doing that task. It also says what to search with `find-skills` if that skill is missing. Example rows:
+
+| Task | Load skill(s) | If missing, `find-skills` query |
+|---|---|---|
+| Probe voiceover, silencedetect, loudness | `ffmpeg`, `media-use` | `ffmpeg audio` |
+| Generate procedural SFX | `ffmpeg`, `remotion-multimedia` | `audio synthesis` |
+| Scaffold project, Root.tsx, 60 fps composition | `remotion-create`, `remotion-best-practices` | `remotion` |
+| Camera / viewport / transitions | `hyperframes`, `hyperframes-cli`, `video-shotcraft` | `hyperframes` |
+| Choreography, easing, palette feel | `motion-art-direction`, `style-sampling` | `motion design` |
+| Study reference videos | `reverse-any-video`, `style-sampling` | `video analysis` |
+| Typed components, theme.ts | `typescript-pro`, `typescript-advanced-types` | `typescript` |
+| Still audits, dead-air audit, spotlight check | `remotion-render`, screenshot skill, `playwright-cli` | `screenshot` |
+| Final render | `remotion-render` | `remotion render` |
+
+Add rows for anything video-specific (captions, maps, charts, etc.).
+
+**5. Skills log.** The agent keeps `SKILLS_LOG.md` in the project root. It records the inventory result, every skill installed via `find-skills` (the query used and the skill installed), and, for each task, which skill was loaded. Pre-export QA fails if any task in the map has no logged skill.
+
+When you're writing the spec yourself, if the user shares their skill list (for example a screenshot of `ls ~/.agents/skills`), use it. Mark which baseline skills are already present and which ones the agent must install.
+
+---
+
 ## Step 1: Gather inputs (read everything first)
 
 Read every file the user attached before you write anything. Typical inputs are:
@@ -100,9 +152,15 @@ Use this section structure. Keep the WinUtil_v2 level of precision: every keyfra
 >   timestamps + 60fps frame keys; locked theme.ts; Disney easing: anticipation, spring overshoot with fps: 60,
 >   6–10f staggers, follow-through, Easing.bezier(0.22, 1, 0.36, 1); 6–10 words max per headline)
 
-## 1. MANDATORY SKILL DISCOVERY & EXECUTION PROTOCOL (HARD GATE)
-   Required skill domains (Remotion, HyperFrames, Motion Design, Icons/SVG/UI, Audio/FFmpeg);
-   run find-skills if missing; document loaded skills; never guess APIs.
+## 1. SKILL-FIRST SYSTEM: MANDATORY SKILL DISCOVERY & EXECUTION (HARD GATE)
+   1.1 Skill inventory command + recorded result (present / missing per baseline skill)
+   1.2 Baseline required skills table (all domains, including Screenshots & visual QA)
+   1.3 Screenshot capability gate: confirm the still-capture + screenshot skills; if missing,
+       run find-skills (screenshot / browser screenshot / playwright screenshot / visual
+       regression / frame capture), install, take one test screenshot. No scene code before this passes.
+   1.4 Task -> Skill map (every build task, the skill to load right before it, the find-skills fallback query)
+   1.5 Rule: load the mapped SKILL.md before each task; never guess Remotion/HyperFrames/FFmpeg APIs
+   1.6 SKILLS_LOG.md requirement (inventory, installs, per-task skill used)
 
 ## 2. PROJECT IDENTITY, ENVIRONMENT & ROOT RESOURCES
    Project name, audience, host environment constraints, root files (voiceover.wav, screenshots,
@@ -154,6 +212,8 @@ Use this section structure. Keep the WinUtil_v2 level of precision: every keyfra
    AnimatedCursor, scenes/SceneN*.tsx, scripts/generate-sfx.mjs), SafeStage container,
    flex/grid with gap >= 28px and minWidth: 0, chart labels in flex headers.
    Mandatory pre-export verification:
+   0. SKILLS AUDIT: re-run the inventory; every baseline skill is present; screenshot skill confirmed;
+      every task in the Task -> Skill map has a logged skill in SKILLS_LOG.md
    1. Audio length & sync audit
    2. npx tsc --noEmit (zero errors)
    3. Anti-overlap still audit (>= 10 named frames)
@@ -182,6 +242,8 @@ Use this section structure. Keep the WinUtil_v2 level of precision: every keyfra
 ## Step 6: Self-check before delivering
 
 Go through these and fix anything that fails:
+- [ ] Section 1 contains the full Skill-First System: inventory command, baseline table, screenshot gate with find-skills queries, Task -> Skill map covering every build task, SKILLS_LOG.md rule.
+- [ ] Every keyframe-heavy task (SFX, camera, typing terminal, chart, render, audits) appears in the Task -> Skill map.
 - [ ] Every timestamp has a matching frame number, and `f = round(s × 60)` is correct.
 - [ ] Scene ranges are contiguous with no gaps or overlaps, and the last scene ends ≈ 2s after the final word.
 - [ ] **Coverage table has zero empty ranges. Every exit verb has a paired entry. Every narration beat has a visual event.**
